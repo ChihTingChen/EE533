@@ -1,0 +1,149 @@
+#!/usr/bin/perl -w
+# Usage: ./cpureg <cmd> [options]
+
+use lib "/usr/local/netfpga/lib/Perl5";
+use strict;
+
+# =========================================================
+# Register Definitions (Based on your Lab 5 spec)
+# =========================================================
+my $IDS_CPU_POWER_REG  = 0x2000300;
+my $IDS_HOST_ADDR_REG  = 0x2000304;
+my $IDS_HOST_WDATA_REG = 0x2000308;
+my $IDS_HOST_WE_REG    = 0x200030c;
+my $IDS_HOST_RDATA_REG = 0x2000310;
+
+# =========================================================
+# Base Functions (Standard NetFPGA calls)
+# =========================================================
+sub regwrite {
+   my( $addr, $value ) = @_;
+   # Using standard regwrite C program
+   my $cmd = sprintf( "regwrite 0x%08x 0x%08x", $addr, $value );
+   my $result = `$cmd`;
+   # print "Debug: $cmd\n"; 
+}
+
+sub regread {
+   my( $addr ) = @_;
+   # Using standard regread C program
+   my $cmd = sprintf( "regread 0x%08x", $addr );
+   my @out = `$cmd`;
+   my $result = $out[0];
+   
+   # Parse the output: "Reg 0x2000300 (33555200): 0x00000001 (1)"
+   if ( defined $result && $result =~ m/Reg (0x[0-9a-f]+) \((\d+)\):\s+(0x[0-9a-f]+) \((\d+)\)/ ) {
+      $result = $3; # Get the hex value
+   } else {
+      $result = "0x00000000"; # Default fallback
+   }
+   return hex($result); # Return as integer
+}
+
+# =========================================================
+# CPU Specific Functions
+# =========================================================
+
+# Function: Set CPU Power (0 or 1)
+sub set_cpu_power {
+   my ($state) = @_;
+   print "Setting CPU Power/Reset to: $state\n";
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   regwrite($IDS_CPU_POWER_REG, $state);
+}
+
+# Function: Write Memory (Write)
+# Steps: 1. Set Address, 2. Set Data, 3. Toggle WE (0->1->0)
+sub write_mem {
+   my ($addr, $data) = @_;
+   
+   # 1. Set the Address
+   regwrite($IDS_HOST_WE_REG, 0x0);
+
+   regwrite($IDS_HOST_ADDR_REG, $addr);
+   
+   # 2. Set the Write Data
+   regwrite($IDS_HOST_WDATA_REG, $data);
+   
+   # 3. Pulse Write Enable (WE) High then Low to trigger the write
+   regwrite($IDS_HOST_WE_REG, 0x1);
+   
+   printf("Write Mem: Addr 0x%08x <= Data 0x%08x\n", $addr, $data);
+}
+
+# Function: Read Memory
+# Steps: 1. Set Address, 2. Ensure WE is 0, 3. Read RDATA register
+sub read_mem {
+   my ($addr) = @_;
+   
+   # 1. Set the Address
+   regwrite($IDS_HOST_WE_REG, 0x0);
+
+   regwrite($IDS_HOST_ADDR_REG, $addr);
+   
+   # 2. Ensure Write Enable is Low (Read mode)
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   
+   # 3. Read the data back
+   my $val = regread($IDS_HOST_RDATA_REG);
+   
+   printf("Read Mem: Addr 0x%08x => Data 0x%08x\n", $addr, $val);
+   return $val;
+}
+
+sub usage {
+   print "Usage: cpureg <cmd> <cmd options>\n";
+   print "  Commands:\n";
+   print "    power <0|1>           Set CPU Power Reg (0=Off/Reset, 1=On)\n";
+   print "    write <addr> <data>   Write data to CPU memory (Hex or Dec)\n";
+   print "    read <addr>           Read data from CPU memory\n";
+   print "    allregs               Dump all CPU interface registers\n";
+}
+
+# =========================================================
+# Main Logic
+# =========================================================
+
+my $numargs = $#ARGV + 1;
+if( $numargs < 1 ) {
+   usage();
+   exit(1);
+}
+
+my $cmd = $ARGV[0];
+
+# Helper to handle hex strings (e.g. "0x10") or decimal strings
+sub parse_val {
+    my $v = shift;
+    if ($v =~ /^0x/) { return hex($v); }
+    return int($v);
+}
+
+if ($cmd eq "power") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $val = parse_val($ARGV[1]);
+   set_cpu_power($val);
+
+} elsif ($cmd eq "write") {
+   if ($numargs < 3) { usage(); exit(1); }
+   my $addr = parse_val($ARGV[1]);
+   my $data = parse_val($ARGV[2]);
+   write_mem($addr, $data);
+
+} elsif ($cmd eq "read") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $addr = parse_val($ARGV[1]);
+   read_mem($addr);
+
+} elsif ($cmd eq "allregs") {
+   printf("CPU_POWER_REG:  0x%08x\n", regread($IDS_CPU_POWER_REG));
+   printf("HOST_ADDR_REG:  0x%08x\n", regread($IDS_HOST_ADDR_REG));
+   printf("HOST_WDATA_REG: 0x%08x\n", regread($IDS_HOST_WDATA_REG));
+   printf("HOST_WE_REG:    0x%08x\n", regread($IDS_HOST_WE_REG));
+   printf("HOST_RDATA_REG: 0x%08x\n", regread($IDS_HOST_RDATA_REG));
+
+} else {
+   print "Unrecognized command $cmd\n";
+   usage();
+   exit(1);
+}
