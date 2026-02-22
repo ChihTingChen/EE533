@@ -1,0 +1,136 @@
+#!/usr/bin/perl -w
+# Usage: ./cpureg <cmd> [options]
+
+use lib "/usr/local/netfpga/lib/Perl5";
+use strict;
+
+my $IDS_CPU_POWER_REG   = 0x2000300;
+my $IDS_HOST_THREAD_REG = 0x2000304; 
+my $IDS_HOST_ADDR_REG   = 0x2000308;
+my $IDS_HOST_WDATA_REG  = 0x200030c;
+my $IDS_HOST_WE_REG     = 0x2000310;
+my $IDS_HOST_RDATA_REG  = 0x2000314;
+
+
+sub regwrite {
+   my( $addr, $value ) = @_;
+   my $cmd = sprintf( "regwrite 0x%08x 0x%08x", $addr, $value );
+   my $result = `$cmd`;
+}
+
+sub regread {
+   my( $addr ) = @_;
+   my $cmd = sprintf( "regread 0x%08x", $addr );
+   my @out = `$cmd`;
+   my $result = $out[0];
+   
+   if ( defined $result && $result =~ m/Reg (0x[0-9a-f]+) \((\d+)\):\s+(0x[0-9a-f]+) \((\d+)\)/ ) {
+      $result = $3; 
+   } else {
+      $result = "0x00000000"; 
+   }
+   return hex($result); 
+}
+
+sub set_cpu_power {
+   my ($state) = @_;
+   print "Setting CPU Power/Reset to: $state\n";
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   regwrite($IDS_CPU_POWER_REG, $state);
+}
+
+sub set_host_thread {
+   my ($thread_id) = @_;
+
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   regwrite($IDS_HOST_THREAD_REG, $thread_id);
+   regwrite($IDS_HOST_WE_REG, 0x1);
+   printf("Set Host Thread to: %d (0x%08x)\n", $thread_id, $thread_id);
+}
+
+sub write_mem {
+   my ($addr, $data) = @_;
+   
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   regwrite($IDS_HOST_ADDR_REG, $addr);
+   regwrite($IDS_HOST_WDATA_REG, $data);
+   regwrite($IDS_HOST_WE_REG, 0x1);
+   
+   printf("Write Mem: Addr 0x%08x <= Data 0x%08x\n", $addr, $data);
+}
+
+sub read_mem {
+   my ($addr) = @_;
+   
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   regwrite($IDS_HOST_ADDR_REG, $addr);
+   regwrite($IDS_HOST_WE_REG, 0x0);
+   
+   my $val = regread($IDS_HOST_RDATA_REG);
+   
+   printf("Read Mem: Addr 0x%08x => Data 0x%08x\n", $addr, $val);
+   return $val;
+}
+
+sub usage {
+   print "Usage: cpureg <cmd> <cmd options>\n";
+   print "  Commands:\n";
+   print "    power <0|1>           Set CPU Power Reg (1 = Run, 0 = Reset and Write init index)\n";
+   print "    thread <id>           Set target Thread ID for upcoming operations\n";
+   print "    write <addr> <data>   Write data to CPU memory \n";
+   print "    read <addr>           Read data from CPU memory\n";
+   print "    allregs               Dump all CPU interface registers\n";
+}
+
+# =========================================================
+# Main Logic
+# =========================================================
+
+my $numargs = $#ARGV + 1;
+if( $numargs < 1 ) {
+   usage();
+   exit(1);
+}
+
+my $cmd = $ARGV[0];
+
+sub parse_val {
+    my $v = shift;
+    if ($v =~ /^0x/) { return hex($v); }
+    return int($v);
+}
+
+if ($cmd eq "power") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $val = parse_val($ARGV[1]);
+   set_cpu_power($val);
+
+} elsif ($cmd eq "thread") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $val = parse_val($ARGV[1]);
+   set_host_thread($val);
+
+} elsif ($cmd eq "write") {
+   if ($numargs < 3) { usage(); exit(1); }
+   my $addr = parse_val($ARGV[1]);
+   my $data = parse_val($ARGV[2]);
+   write_mem($addr, $data);
+
+} elsif ($cmd eq "read") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $addr = parse_val($ARGV[1]);
+   read_mem($addr);
+
+} elsif ($cmd eq "allregs") {
+   printf("CPU_POWER_REG:   0x%08x\n", regread($IDS_CPU_POWER_REG));
+   printf("HOST_THREAD_REG: 0x%08x\n", regread($IDS_HOST_THREAD_REG)); 
+   printf("HOST_ADDR_REG:   0x%08x\n", regread($IDS_HOST_ADDR_REG));
+   printf("HOST_WDATA_REG:  0x%08x\n", regread($IDS_HOST_WDATA_REG));
+   printf("HOST_WE_REG:     0x%08x\n", regread($IDS_HOST_WE_REG));
+   printf("HOST_RDATA_REG:  0x%08x\n", regread($IDS_HOST_RDATA_REG));
+
+} else {
+   print "Unrecognized command $cmd\n";
+   usage();
+   exit(1);
+}
