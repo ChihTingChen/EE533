@@ -1,0 +1,118 @@
+#!/usr/bin/perl -w
+# Usage: ./cpureg <cmd> [options]
+
+use lib "/usr/local/netfpga/lib/Perl5";
+use strict;
+
+# =========================================================
+# Register Address Definitions (依照你的 XML 順序排列)
+# =========================================================
+my $IDS_CPU_POWER_REG       = 0x2000300;
+my $IDS_HOST_ADDR_REG       = 0x2000304; 
+my $IDS_HOST_D3_REG 		= 0x2000308; 
+my $IDS_HOST_D2_REG 		= 0x200030C; 
+my $IDS_HOST_D1_REG 		= 0x2000310; 
+my $IDS_HOST_D0_REG 		= 0x2000314; 
+my $IDS_HOST_RESET_REG 		= 0x2000318; 
+my $IDS_HOST_RDATA_LOW_REG  = 0x200031C; 
+my $IDS_HOST_RDATA_HIGH_REG = 0x2000320; 
+
+# =========================================================
+# Hardware Interaction Functions
+# =========================================================
+sub regwrite {
+   my( $addr, $value ) = @_;
+   my $cmd = sprintf( "regwrite 0x%08x 0x%08x", $addr, $value );
+   my $result = `$cmd`;
+}
+
+sub regread {
+   my( $addr ) = @_;
+   my $cmd = sprintf( "regread 0x%08x", $addr );
+   my @out = `$cmd`;
+   my $result = $out[0];
+   
+   if ( defined $result && $result =~ m/Reg (0x[0-9a-f]+) \((\d+)\):\s+(0x[0-9a-f]+) \((\d+)\)/ ) {
+      $result = $3; 
+   } else {
+      $result = "0x00000000"; 
+   }
+   return hex($result); 
+}
+
+# --- 簡化後的 Power 控制 (不需要 WE 暫存器了) ---
+sub set_cpu_power {
+   my ($state) = @_;
+   print "Setting CPU Power/Reset to: $state\n";
+   regwrite($IDS_CPU_POWER_REG, $state);
+}
+
+# --- 簡化後的讀取功能 (只要給位址，然後讀取 High/Low) ---
+sub read_mem {
+   my ($addr) = @_;
+   
+   # 1. 寫入要讀取的位址
+   regwrite($IDS_HOST_ADDR_REG, $addr);
+   
+   # 2. 讀取低位與高位
+   my $val_low = regread($IDS_HOST_RDATA_LOW_REG);
+   my $val_high = regread($IDS_HOST_RDATA_HIGH_REG);
+   
+   # 3. 印出 64-bit 結果
+   printf("Read Mem: Addr 0x%08x => Data 0x%08x_%08x\n", $addr, $val_high, $val_low);
+   return ($val_high, $val_low);
+}
+
+sub usage {
+   print "Usage: cpureg <cmd> <cmd options>\n";
+   print "  Commands:\n";
+   print "    power <0|1>   Set CPU Power Reg (1 = Run, 0 = Freeze)\n";
+   print "    read <addr>   Read 64-bit data from GPU memory at target address\n";
+   print "    allregs       Dump all current CPU interface registers\n";
+}
+
+# =========================================================
+# Main Logic
+# =========================================================
+
+my $numargs = $#ARGV + 1;
+if( $numargs < 1 ) {
+   usage();
+   exit(1);
+}
+
+my $cmd = $ARGV[0];
+
+sub parse_val {
+    my $v = shift;
+    if ($v =~ /^0x/i) { return hex($v); }
+    return int($v);
+}
+
+if ($cmd eq "power") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $val = parse_val($ARGV[1]);
+   set_cpu_power($val);
+
+} elsif ($cmd eq "read") {
+   if ($numargs < 2) { usage(); exit(1); }
+   my $addr = parse_val($ARGV[1]);
+   read_mem($addr);
+
+} elsif ($cmd eq "allregs") {
+   printf("--- Current Register Status ---\n");
+   printf("CPU_POWER_REG:       0x%08x\n", regread($IDS_CPU_POWER_REG));
+   printf("HOST_ADDR_REG:       0x%08x\n", regread($IDS_HOST_ADDR_REG));
+   printf("HOST_RDATA_LOW_REG:  0x%08x\n", regread($IDS_HOST_RDATA_LOW_REG));
+   printf("HOST_RDATA_HIGH_REG: 0x%08x\n", regread($IDS_HOST_RDATA_HIGH_REG));
+   printf("HOST_D3_REG: 0x%08x\n", regread($IDS_HOST_D3_REG));
+   printf("HOST_D2_REG: 0x%08x\n", regread($IDS_HOST_D2_REG));
+   printf("HOST_D1_REG: 0x%08x\n", regread($IDS_HOST_D1_REG));
+   printf("HOST_D0_REG: 0x%08x\n", regread($IDS_HOST_D0_REG));
+   printf("HOST_RESET_REG: 0x%08x\n", regread($IDS_HOST_RESET_REG));
+
+} else {
+   print "Unrecognized command $cmd\n";
+   usage();
+   exit(1);
+}
