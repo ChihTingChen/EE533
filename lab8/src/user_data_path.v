@@ -400,7 +400,7 @@ module user_data_path
    );*/
    //==================CPU==================
    
-	gpu_top gpu(
+	/*gpu_top gpu(
 		.clk(clk),
 		.reset(reset),
 
@@ -417,8 +417,35 @@ module user_data_path
 		.reg_addr_out                      (oq_in_reg_addr),
 		.reg_data_out                      (oq_in_reg_data),
 		.reg_src_out                       (oq_in_reg_src)
-	);
-
+	);*/
+	//==================Combined==================
+	arm_tensor_cpu smartnic_cpu (
+      .clk(clk),
+      .rst(reset),
+      .net_in_data                         (ids_in_data),
+      .net_in_ctrl                         (ids_in_ctrl),
+      .net_in_wr                           (ids_in_wr),
+      .net_in_rdy                          (ids_in_rdy),
+	  
+      .net_out_data                        (oq_in_data),
+      .net_out_ctrl                        (oq_in_ctrl),
+      .net_out_wr                          (oq_in_wr),
+      .net_out_rdy                         (oq_in_rdy),
+	  
+	  .reg_req_in                          (ids_in_reg_req),
+	  .reg_ack_in                          (ids_in_reg_ack),
+	  .reg_rd_wr_L_in                      (ids_in_reg_rd_wr_L),
+	  .reg_addr_in                         (ids_in_reg_addr),
+	  .reg_data_in                         (ids_in_reg_data),
+	  .reg_src_in                          (ids_in_reg_src),
+										   
+	  .reg_req_out                         (oq_in_reg_req),
+	  .reg_ack_out                         (oq_in_reg_ack),
+	  .reg_rd_wr_L_out                     (oq_in_reg_rd_wr_L),
+	  .reg_addr_out                        (oq_in_reg_addr),
+	  .reg_data_out                        (oq_in_reg_data),
+	  .reg_src_out                         (oq_in_reg_src)
+   );
 
    
    output_queues
